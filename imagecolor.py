@@ -9,11 +9,8 @@ from skimage.color import rgb2lab, deltaE_ciede2000
 import os
 
 
-
 def get_image(image_name):
-    print(image_name)
     image = Image.open(image_name)
-    print(type(image))
     image = numpy.array(image)
     return image
 

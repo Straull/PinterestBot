@@ -3,7 +3,9 @@ import os
 import imagecolor
 import imgdownloaderthread
 
+
 path = os.getcwd()
+
 
 theme = input("What is the image theme wanted ? : ")
 print("------------First Color------------")
@@ -24,8 +26,8 @@ def main():
     client.login()
 
     z = client.search(scope='boards', query=theme)
+
     urls = []
-    name = []
     for i in z:
         urls.append(i["image_cover_hd_url"])
 
