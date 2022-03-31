@@ -5,23 +5,14 @@ import imgdownloaderthread
 
 path = os.getcwd()
 
-theme = input("Quel est le theme d'image que vous souhaitez telecharger ? : ")
-print("------------Premiere Couleur------------")
-R1 = eval(input("Entrer la valeur de Rouge souhaite : "))
-V1 = eval(input("Entrer la valeur de Vert souhaite : "))
-B1 = eval(input("Entrer la valeur de Bleu souhaite : "))
-print("------------Deuxieme Couleur------------")
-R2 = eval(input("Entrer la valeur de Rouge souhaite : "))
-V2 = eval(input("Entrer la valeur de Vert souhaite : "))
-B2 = eval(input("Entrer la valeur de Bleu souhaite : "))
-print("------------Troisieme Couleur------------")
-R3 = eval(input("Entrer la valeur de Rouge souhaite : "))
-V3 = eval(input("Entrer la valeur de Vert souhaite : "))
-B3 = eval(input("Entrer la valeur de Bleu souhaite : "))
-RVB1 = (R1, V1, B1)
-RVB2 = (R2, V2, B2)
-RVB3 = (R3, V3, B3)
-colors_list = [RVB1, RVB2, RVB3]
+theme = input("What is the image theme wanted ? : ")
+print("------------First Color------------")
+H1 = input("Enter first color Hex Code")
+print("------------Second Color------------")
+H2 = input("Enter second color hex code")
+print("------------Third Color------------")
+H3 = input("Enter third color hex code")
+colors_list = [H1, H2, H3]
 
 
 def main():
