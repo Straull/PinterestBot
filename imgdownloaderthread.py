@@ -29,8 +29,3 @@ def downloadall(urlist):
     for x in range(0, 40):
         lock = threading.Lock()
         threading.Thread(target=download, args=[queue.get_nowait(), queue, lock, path]).start()
-
-
-
-
-

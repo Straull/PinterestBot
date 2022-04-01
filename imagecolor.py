@@ -48,8 +48,5 @@ def matching_color(image_name, color, image_path, max_diff=25, numbers_of_colors
             color_3 = True
     if color_1 and color_2 and color_3:
         shutil.copyfile(image_name, image_path + image_name)
-        os.remove(image_name)
-        return
-    else:
-        os.remove(image_name)
-        return
+    os.remove(image_name)
+    return

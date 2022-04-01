@@ -16,7 +16,6 @@ print("------------Third Color------------")
 H3 = input("Enter third color hex code")
 colors_list = [H1, H2, H3]
 
-
 def main():
     client = Pinterest.Pinterest(email='email',
                                  password='password',
@@ -41,8 +40,4 @@ def main():
     for i in imagelist:
         imagecolor.matching_color(i, colors_list, pathimage)
 
-
 main()
-
-
-
