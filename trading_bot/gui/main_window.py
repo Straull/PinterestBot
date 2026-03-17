@@ -1,6 +1,7 @@
-"""Fenêtre principale de l'application Trading Bot."""
+"""Fenetre principale de l'application Trading Bot."""
 
 import traceback
+import numpy as np
 import pandas as pd
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
@@ -19,9 +20,25 @@ from trading_bot.portfolio.manager import PortfolioManager
 from trading_bot.portfolio.strategy import TradingStrategy
 
 
+def _df_to_arrays(df: pd.DataFrame) -> dict:
+    """Convertit un DataFrame en dict de numpy arrays (thread-safe).
+
+    Doit etre appele dans le meme thread que celui qui a cree le DataFrame.
+    """
+    result = {}
+    for col in df.columns:
+        arr = df[col].values.copy()
+        if arr.dtype.kind == "f":
+            arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        result[col] = arr
+    result["_length"] = len(df)
+    return result
+
+
 class DataWorker(QThread):
-    """Thread pour le chargement des données."""
-    finished = pyqtSignal(pd.DataFrame)
+    """Thread pour le chargement des donnees."""
+    finished = pyqtSignal(dict)  # dict de numpy arrays
+    raw_df_ready = pyqtSignal(pd.DataFrame)  # pour le ML (stocke en interne)
     error = pyqtSignal(str)
 
     def __init__(self, market_data: MarketData, symbol: str, period: str):
@@ -33,17 +50,23 @@ class DataWorker(QThread):
     def run(self):
         try:
             df = self.market_data.fetch_historical(self.symbol, self.period)
-            # Nettoyer dans le thread worker pour eviter les conflits GIL
+            # Nettoyer dans ce thread
             df = df.ffill().fillna(0)
-            self.finished.emit(df)
+            # Emettre le DataFrame brut pour le ML
+            self.raw_df_ready.emit(df)
+            # Convertir en numpy arrays pour le GUI (thread-safe)
+            arrays = _df_to_arrays(df)
+            arrays["_symbol"] = self.market_data.symbol or self.symbol
+            arrays["_rows"] = len(df)
+            self.finished.emit(arrays)
         except Exception as e:
             self.error.emit(str(e))
 
 
 class TrainWorker(QThread):
-    """Thread pour l'entraînement ML."""
+    """Thread pour l'entrainement ML."""
     finished = pyqtSignal(dict)
-    progress = pyqtSignal(str, int, str)  # stage, pct, message
+    progress = pyqtSignal(str, int, str)
     error = pyqtSignal(str)
 
     def __init__(self, engine: MLEngine, df: pd.DataFrame, horizon: int):
@@ -67,10 +90,10 @@ class TrainWorker(QThread):
 
 
 class LiveWorker(QThread):
-    """Thread pour les données et prévisions en direct."""
+    """Thread pour les donnees et previsions en direct."""
     data_received = pyqtSignal(dict)
     prediction_received = pyqtSignal(dict)
-    trade_signal = pyqtSignal(dict)  # Signal pour les décisions de trading
+    trade_signal = pyqtSignal(dict)
     error = pyqtSignal(str)
 
     def __init__(self, market_data: MarketData, engine: MLEngine,
@@ -83,17 +106,14 @@ class LiveWorker(QThread):
 
     def run(self):
         try:
-            # Données live
             live_data = self.market_data.fetch_live(self.symbol)
             self.data_received.emit(live_data)
 
-            # Prédiction + trading automatique
             if self.engine.is_trained:
                 recent = self.market_data.get_recent_data_for_prediction(self.symbol)
                 prediction = self.engine.predict(recent)
                 self.prediction_received.emit(prediction)
 
-                # Évaluer la stratégie et exécuter le trade
                 current_price = live_data.get("price", 0)
                 if current_price > 0:
                     decision = self.strategy.evaluate(
@@ -108,7 +128,7 @@ class LiveWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    """Fenêtre principale du Trading Bot."""
+    """Fenetre principale du Trading Bot."""
 
     def __init__(self):
         super().__init__()
@@ -116,51 +136,44 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1280, 800)
         self.resize(1440, 900)
 
-        # Composants métier
         self.market_data = MarketData()
         self.ml_engine = MLEngine()
         self.portfolio = PortfolioManager()
         self.strategy = TradingStrategy(self.portfolio)
-        self.current_data = None
+        self.current_data = None  # DataFrame pour le ML
         self.live_timer = None
         self._workers = []
 
-        # Appliquer le thème
         self.setStyleSheet(DARK_THEME)
 
         self._setup_ui()
         self._connect_signals()
         self._setup_statusbar()
 
-        # Mise à jour du portefeuille au démarrage
         QTimer.singleShot(500, self._startup_portfolio_update)
 
     def _setup_ui(self):
-        # Tab widget central
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # --- Onglet 1 : Analyse & Trading ---
+        # Onglet 1 : Analyse & Trading
         analysis_tab = QWidget()
         analysis_layout = QHBoxLayout(analysis_tab)
         analysis_layout.setContentsMargins(8, 8, 8, 8)
         analysis_layout.setSpacing(8)
 
-        # Panneau gauche : contrôles
         self.controls = ControlsPanel()
         analysis_layout.addWidget(self.controls)
 
-        # Centre : graphiques
         self.chart = ChartWidget()
         analysis_layout.addWidget(self.chart, stretch=1)
 
-        # Droite : résultats
         self.results = ResultsPanel()
         analysis_layout.addWidget(self.results)
 
         self.tabs.addTab(analysis_tab, "Analyse & Trading")
 
-        # --- Onglet 2 : Portefeuille ---
+        # Onglet 2 : Portefeuille
         self.portfolio_tab = PortfolioTab(self.portfolio, self.strategy)
         self.tabs.addTab(self.portfolio_tab, "Portefeuille")
 
@@ -176,7 +189,6 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage("Pret. Entrez un symbole et chargez les donnees.")
 
     def _startup_portfolio_update(self):
-        """Met à jour la valeur du portefeuille au démarrage."""
         try:
             self.portfolio_tab.refresh()
             self.statusbar.showMessage(
@@ -187,11 +199,11 @@ class MainWindow(QMainWindow):
             pass
 
     def _load_data(self, symbol: str, period: str):
-        """Charge les données historiques dans un thread."""
         self.controls.load_btn.setEnabled(False)
         self.statusbar.showMessage(f"Chargement de {symbol}...")
 
         worker = DataWorker(self.market_data, symbol, period)
+        worker.raw_df_ready.connect(self._store_raw_data)
         worker.finished.connect(self._on_data_loaded)
         worker.error.connect(self._on_data_error)
         worker.finished.connect(lambda: self._cleanup_worker(worker))
@@ -199,25 +211,28 @@ class MainWindow(QMainWindow):
         self._workers.append(worker)
         worker.start()
 
-    def _on_data_loaded(self, df: pd.DataFrame):
+    def _store_raw_data(self, df: pd.DataFrame):
+        """Stocke le DataFrame brut pour l'entrainement ML."""
         self.current_data = df
+
+    def _on_data_loaded(self, data: dict):
+        """Recoit les donnees sous forme de numpy arrays (thread-safe)."""
         try:
-            self.chart.update_chart(df)
+            self.chart.update_chart(data)
         except Exception as e:
             print(f"Erreur graphique: {e}")
-        self.controls.set_data_loaded(len(df), self.market_data.symbol)
+
+        symbol = data.get("_symbol", "?")
+        rows = data.get("_rows", 0)
+        self.controls.set_data_loaded(rows, symbol)
         self.controls.load_btn.setEnabled(True)
         self.results.clear()
 
-        # get_info() peut bloquer/crasher avec certaines versions de yfinance
-        symbol = self.market_data.symbol or "?"
-        try:
-            last_price = df["Close"].iloc[-1]
-        except Exception:
-            last_price = 0
+        last_price = 0
+        if "Close" in data and len(data["Close"]) > 0:
+            last_price = data["Close"][-1]
         self.statusbar.showMessage(
-            f"{symbol} - {len(df)} lignes chargees | "
-            f"Dernier prix: ${last_price:,.2f}"
+            f"{symbol} - {rows} lignes chargees | Dernier prix: ${last_price:,.2f}"
         )
 
     def _on_data_error(self, error: str):
@@ -226,7 +241,6 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Erreur de chargement", error)
 
     def _train_model(self, horizon: int):
-        """Lance l'entraînement ML dans un thread."""
         if self.current_data is None:
             return
 
@@ -260,7 +274,6 @@ class MainWindow(QMainWindow):
         self.controls.set_training_done()
         self.results.update_training_results(results)
 
-        # Faire une première prédiction
         try:
             recent = self.market_data.get_recent_data_for_prediction()
             prediction = self.ml_engine.predict(recent)
@@ -281,13 +294,11 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Erreur d'entrainement", error)
 
     def _toggle_live(self, active: bool):
-        """Active/désactive le suivi en direct."""
         if active:
             self.live_timer = QTimer()
             self.live_timer.timeout.connect(self._fetch_live)
             self.live_timer.start(30000)
             self._fetch_live()
-            # Activer aussi le rafraîchissement du portefeuille
             self.portfolio_tab.start_auto_refresh(60000)
             self.statusbar.showMessage("Suivi en direct active (maj toutes les 30s)")
         else:
@@ -298,7 +309,6 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("Suivi en direct desactive")
 
     def _fetch_live(self):
-        """Récupère les données live dans un thread."""
         worker = LiveWorker(
             self.market_data, self.ml_engine,
             self.strategy, self.market_data.symbol,
@@ -312,7 +322,6 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _on_trade_executed(self, result: dict):
-        """Callback quand un trade est exécuté automatiquement."""
         action = result.get("action", "?")
         symbol = result.get("symbol", "?")
         shares = result.get("shares", 0)
@@ -321,11 +330,9 @@ class MainWindow(QMainWindow):
         self.statusbar.showMessage(
             f"Trade execute: {action} {shares}x {symbol} @ ${price:.2f}"
         )
-        # Rafraîchir le portefeuille
         self.portfolio_tab.refresh()
 
     def _save_model(self):
-        """Sauvegarde les modèles."""
         try:
             self.ml_engine.save_models()
             self.statusbar.showMessage("Modeles sauvegardes dans ./models/")
@@ -334,12 +341,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Erreur", f"Erreur de sauvegarde: {e}")
 
     def _cleanup_worker(self, worker):
-        """Nettoie un worker terminé."""
         if worker in self._workers:
             self._workers.remove(worker)
 
     def closeEvent(self, event):
-        """Nettoyage à la fermeture."""
         if self.live_timer:
             self.live_timer.stop()
         self.portfolio_tab.stop_auto_refresh()
