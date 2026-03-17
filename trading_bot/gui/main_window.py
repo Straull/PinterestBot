@@ -281,10 +281,17 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        self.statusbar.showMessage(
-            f"Entrainement termine | Accuracy ensemble: {results['ensemble_accuracy']:.1%} | "
-            f"GPU: {results['lstm_device']}"
-        )
+        device_info = results.get('lstm_device', 'N/A')
+        if device_info == "N/A":
+            self.statusbar.showMessage(
+                f"Entrainement termine | Accuracy ensemble: {results['ensemble_accuracy']:.1%} | "
+                f"Mode: XGBoost + LightGBM"
+            )
+        else:
+            self.statusbar.showMessage(
+                f"Entrainement termine | Accuracy ensemble: {results['ensemble_accuracy']:.1%} | "
+                f"GPU: {device_info}"
+            )
 
     def _on_train_error(self, error: str):
         self.controls.train_btn.setEnabled(True)

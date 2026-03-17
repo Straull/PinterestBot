@@ -172,18 +172,24 @@ class ResultsPanel(QFrame):
         self.prob_down_label.setText(f"Baisse: {prediction['prob_down']:.1f}%")
         self.prob_up_label.setText(f"Hausse: {prediction['prob_up']:.1f}%")
 
-        # Détails par modèle
+        # Details par modele
         if "details" in prediction:
             d = prediction["details"]
-            self.lstm_detail.setText(f"LSTM : ▲{d['lstm']['prob_up']:.1f}% / ▼{d['lstm']['prob_down']:.1f}%")
+            if "lstm" in d:
+                self.lstm_detail.setText(f"LSTM : ▲{d['lstm']['prob_up']:.1f}% / ▼{d['lstm']['prob_down']:.1f}%")
+            else:
+                self.lstm_detail.setText("LSTM : indisponible")
             self.xgb_detail.setText(f"XGBoost : ▲{d['xgb']['prob_up']:.1f}% / ▼{d['xgb']['prob_down']:.1f}%")
             self.lgbm_detail.setText(f"LightGBM : ▲{d['lgbm']['prob_up']:.1f}% / ▼{d['lgbm']['prob_down']:.1f}%")
 
         if "weights" in prediction:
             w = prediction["weights"]
-            self.weights_label.setText(
-                f"Poids: LSTM={w['lstm']:.0%} XGB={w['xgb']:.0%} LGBM={w['lgbm']:.0%}"
-            )
+            parts = []
+            if "lstm" in w:
+                parts.append(f"LSTM={w['lstm']:.0%}")
+            parts.append(f"XGB={w['xgb']:.0%}")
+            parts.append(f"LGBM={w['lgbm']:.0%}")
+            self.weights_label.setText(f"Poids: {' '.join(parts)}")
 
     def update_live_data(self, data: dict):
         """Met à jour les données de marché en direct."""
@@ -212,18 +218,23 @@ class ResultsPanel(QFrame):
         """Met à jour les résultats d'entraînement."""
         self.accuracy_labels["XGBoost"].setText(f"XGBoost : {results['xgb_accuracy']:.1%}")
         self.accuracy_labels["LightGBM"].setText(f"LightGBM : {results['lgbm_accuracy']:.1%}")
-        self.accuracy_labels["LSTM"].setText(
-            f"LSTM : {results['lstm_accuracy']:.1%} ({results['lstm_device']})"
-        )
+
+        if results.get("lstm_device", "N/A") != "N/A":
+            self.accuracy_labels["LSTM"].setText(
+                f"LSTM : {results['lstm_accuracy']:.1%} ({results['lstm_device']})"
+            )
+        else:
+            self.accuracy_labels["LSTM"].setText("LSTM : indisponible (PyTorch absent)")
+
         self.accuracy_labels["Ensemble"].setText(f"Ensemble : {results['ensemble_accuracy']:.1%}")
         self.accuracy_labels["Ensemble"].setStyleSheet(
             f"color: {COLORS['accent_blue']}; font-weight: bold; font-size: 14px;"
         )
 
-        self.samples_label.setText(
-            f"Train: {results['train_samples']} | Test: {results['test_samples']} | "
-            f"LSTM epochs: {results['lstm_epochs']}"
-        )
+        info_parts = [f"Train: {results['train_samples']}", f"Test: {results['test_samples']}"]
+        if results.get("lstm_epochs", 0) > 0:
+            info_parts.append(f"LSTM epochs: {results['lstm_epochs']}")
+        self.samples_label.setText(" | ".join(info_parts))
 
         # Feature importance
         if results.get("feature_importance"):

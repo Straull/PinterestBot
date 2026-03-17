@@ -1,100 +1,54 @@
-"""Modèle LSTM bidirectionnel avec mécanisme d'Attention pour le trading."""
+"""Modele LSTM bidirectionnel avec mecanisme d'Attention pour le trading.
+
+PyTorch est importe dynamiquement. Si indisponible, LSTMTrainer.is_available()
+retourne False et le moteur ML fonctionne avec XGBoost + LightGBM uniquement.
+"""
 
 import numpy as np
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
 
+# Import dynamique de torch - ne crash pas si absent/casse
+TORCH_AVAILABLE = False
+torch = None
+nn = None
+Dataset = None
+DataLoader = None
 
-class TimeSeriesDataset(Dataset):
-    """Dataset PyTorch pour les séries temporelles."""
+try:
+    import torch as _torch
+    import torch.nn as _nn
+    from torch.utils.data import Dataset as _Dataset, DataLoader as _DataLoader
 
-    def __init__(self, X: np.ndarray, y: np.ndarray):
-        self.X = torch.FloatTensor(X)
-        self.y = torch.LongTensor(y)
-
-    def __len__(self):
-        return len(self.y)
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
-
-class Attention(nn.Module):
-    """Mécanisme d'attention pour pondérer les pas de temps."""
-
-    def __init__(self, hidden_size: int):
-        super().__init__()
-        self.attention = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
-            nn.Tanh(),
-            nn.Linear(hidden_size, 1),
-        )
-
-    def forward(self, lstm_output: torch.Tensor) -> torch.Tensor:
-        # lstm_output: (batch, seq_len, hidden*2)
-        weights = self.attention(lstm_output)  # (batch, seq_len, 1)
-        weights = torch.softmax(weights, dim=1)
-        context = torch.sum(weights * lstm_output, dim=1)  # (batch, hidden*2)
-        return context, weights
-
-
-class LSTMAttentionNet(nn.Module):
-    """Réseau LSTM bidirectionnel avec Attention.
-
-    Architecture:
-    - 2 couches LSTM bidirectionnelles
-    - Mécanisme d'attention sur la sortie
-    - Couches Dense avec dropout et batch normalization
-    - Sortie binaire (hausse/baisse)
-    """
-
-    def __init__(self, input_size: int, hidden_size: int = 128,
-                 num_layers: int = 2, dropout: float = 0.3):
-        super().__init__()
-
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            bidirectional=True,
-            dropout=dropout if num_layers > 1 else 0,
-        )
-
-        self.attention = Attention(hidden_size)
-        self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
-
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_size * 2, hidden_size),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.BatchNorm1d(hidden_size),
-            nn.Linear(hidden_size, 64),
-            nn.ReLU(),
-            nn.Dropout(dropout * 0.5),
-            nn.Linear(64, 2),
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        lstm_out, _ = self.lstm(x)  # (batch, seq_len, hidden*2)
-        context, _ = self.attention(lstm_out)  # (batch, hidden*2)
-        context = self.batch_norm(context)
-        output = self.classifier(context)
-        return output
+    torch = _torch
+    nn = _nn
+    Dataset = _Dataset
+    DataLoader = _DataLoader
+    TORCH_AVAILABLE = True
+except (ImportError, OSError) as e:
+    print(f"[LSTM] PyTorch non disponible: {e}")
+    print("[LSTM] Le bot fonctionnera avec XGBoost + LightGBM uniquement.")
 
 
 class LSTMTrainer:
-    """Entraîneur pour le modèle LSTM avec support GPU (ROCm/CUDA)."""
+    """Entraineur pour le modele LSTM avec support GPU (ROCm/CUDA).
+
+    Si PyTorch n'est pas disponible, is_available() retourne False.
+    """
+
+    @staticmethod
+    def is_available() -> bool:
+        return TORCH_AVAILABLE
 
     def __init__(self, input_size: int, seq_length: int = 60,
                  hidden_size: int = 128, num_layers: int = 2,
                  learning_rate: float = 0.001, dropout: float = 0.3):
+        if not TORCH_AVAILABLE:
+            raise RuntimeError("PyTorch non disponible")
+
         self.seq_length = seq_length
         self.input_size = input_size
         self.device = self._get_device()
 
-        self.model = LSTMAttentionNet(
+        self.model = _LSTMAttentionNet(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
@@ -103,9 +57,7 @@ class LSTMTrainer:
 
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=learning_rate,
-            weight_decay=1e-4,
+            self.model.parameters(), lr=learning_rate, weight_decay=1e-4,
         )
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6,
@@ -115,18 +67,16 @@ class LSTMTrainer:
         self.val_losses = []
         self.best_val_loss = float("inf")
 
-    def _get_device(self) -> torch.device:
-        """Détecte le meilleur device disponible (ROCm/CUDA/CPU)."""
+    def _get_device(self):
         if torch.cuda.is_available():
             device = torch.device("cuda")
             name = torch.cuda.get_device_name(0)
-            print(f"GPU détecté : {name}")
+            print(f"GPU detecte : {name}")
             return device
-        print("Pas de GPU détecté, utilisation du CPU")
+        print("Pas de GPU detecte, utilisation du CPU")
         return torch.device("cpu")
 
     def create_sequences(self, X: np.ndarray, y: np.ndarray) -> tuple:
-        """Crée des séquences temporelles pour le LSTM."""
         X_seq, y_seq = [], []
         for i in range(self.seq_length, len(X)):
             X_seq.append(X[i - self.seq_length:i])
@@ -137,20 +87,14 @@ class LSTMTrainer:
               X_val: np.ndarray, y_val: np.ndarray,
               epochs: int = 100, batch_size: int = 64,
               progress_callback=None) -> dict:
-        """Entraîne le modèle LSTM.
-
-        Args:
-            progress_callback: fonction(epoch, total_epochs, train_loss, val_loss, val_acc)
-        """
-        # Créer les séquences
         X_train_seq, y_train_seq = self.create_sequences(X_train, y_train)
         X_val_seq, y_val_seq = self.create_sequences(X_val, y_val)
 
         if len(X_train_seq) == 0 or len(X_val_seq) == 0:
-            raise ValueError("Pas assez de données pour créer des séquences")
+            raise ValueError("Pas assez de donnees pour creer des sequences")
 
-        train_dataset = TimeSeriesDataset(X_train_seq, y_train_seq)
-        val_dataset = TimeSeriesDataset(X_val_seq, y_val_seq)
+        train_dataset = _TimeSeriesDataset(X_train_seq, y_train_seq)
+        val_dataset = _TimeSeriesDataset(X_val_seq, y_val_seq)
 
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -158,9 +102,9 @@ class LSTMTrainer:
         best_model_state = None
         patience_counter = 0
         early_stop_patience = 15
+        epoch = 0
 
         for epoch in range(epochs):
-            # Training
             self.model.train()
             train_loss = 0.0
             for X_batch, y_batch in train_loader:
@@ -174,7 +118,6 @@ class LSTMTrainer:
                 train_loss += loss.item()
             train_loss /= len(train_loader)
 
-            # Validation
             self.model.eval()
             val_loss = 0.0
             correct = 0
@@ -196,7 +139,6 @@ class LSTMTrainer:
             self.val_losses.append(val_loss)
             self.scheduler.step(val_loss)
 
-            # Early stopping
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
                 best_model_state = {k: v.cpu().clone() for k, v in self.model.state_dict().items()}
@@ -208,15 +150,12 @@ class LSTMTrainer:
                 progress_callback(epoch + 1, epochs, train_loss, val_loss, val_acc)
 
             if patience_counter >= early_stop_patience:
-                print(f"Early stopping à l'epoch {epoch + 1}")
                 break
 
-        # Restaurer le meilleur modèle
         if best_model_state:
             self.model.load_state_dict(best_model_state)
             self.model.to(self.device)
 
-        # Évaluation finale
         final_acc = self._evaluate(val_loader)
 
         return {
@@ -228,8 +167,7 @@ class LSTMTrainer:
             "device": str(self.device),
         }
 
-    def _evaluate(self, data_loader: DataLoader) -> float:
-        """Évalue le modèle sur un DataLoader."""
+    def _evaluate(self, data_loader) -> float:
         self.model.eval()
         correct = 0
         total = 0
@@ -243,15 +181,9 @@ class LSTMTrainer:
         return correct / total if total > 0 else 0
 
     def predict(self, X: np.ndarray) -> tuple:
-        """Prédit sur de nouvelles données.
-
-        Returns:
-            (prediction, probabilities) - prediction: 0 ou 1, probabilities: [p_down, p_up]
-        """
         self.model.eval()
-        # Prendre les seq_length dernières lignes
         if len(X) < self.seq_length:
-            raise ValueError(f"Besoin d'au moins {self.seq_length} lignes de données")
+            raise ValueError(f"Besoin d'au moins {self.seq_length} lignes")
 
         X_seq = X[-self.seq_length:].reshape(1, self.seq_length, -1)
         X_tensor = torch.FloatTensor(X_seq).to(self.device)
@@ -264,7 +196,6 @@ class LSTMTrainer:
         return prediction, probs
 
     def save(self, path: str):
-        """Sauvegarde le modèle."""
         torch.save({
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
@@ -274,8 +205,68 @@ class LSTMTrainer:
         }, path)
 
     def load(self, path: str):
-        """Charge un modèle sauvegardé."""
         checkpoint = torch.load(path, map_location=self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         self.best_val_loss = checkpoint["best_val_loss"]
+
+
+# --- Classes internes PyTorch (definies seulement si torch est disponible) ---
+
+if TORCH_AVAILABLE:
+
+    class _TimeSeriesDataset(Dataset):
+        def __init__(self, X: np.ndarray, y: np.ndarray):
+            self.X = torch.FloatTensor(X)
+            self.y = torch.LongTensor(y)
+
+        def __len__(self):
+            return len(self.y)
+
+        def __getitem__(self, idx):
+            return self.X[idx], self.y[idx]
+
+    class _Attention(nn.Module):
+        def __init__(self, hidden_size: int):
+            super().__init__()
+            self.attention = nn.Sequential(
+                nn.Linear(hidden_size * 2, hidden_size),
+                nn.Tanh(),
+                nn.Linear(hidden_size, 1),
+            )
+
+        def forward(self, lstm_output):
+            weights = self.attention(lstm_output)
+            weights = torch.softmax(weights, dim=1)
+            context = torch.sum(weights * lstm_output, dim=1)
+            return context, weights
+
+    class _LSTMAttentionNet(nn.Module):
+        def __init__(self, input_size: int, hidden_size: int = 128,
+                     num_layers: int = 2, dropout: float = 0.3):
+            super().__init__()
+
+            self.lstm = nn.LSTM(
+                input_size=input_size, hidden_size=hidden_size,
+                num_layers=num_layers, batch_first=True,
+                bidirectional=True,
+                dropout=dropout if num_layers > 1 else 0,
+            )
+            self.attention = _Attention(hidden_size)
+            self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
+            self.classifier = nn.Sequential(
+                nn.Linear(hidden_size * 2, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.BatchNorm1d(hidden_size),
+                nn.Linear(hidden_size, 64),
+                nn.ReLU(),
+                nn.Dropout(dropout * 0.5),
+                nn.Linear(64, 2),
+            )
+
+        def forward(self, x):
+            lstm_out, _ = self.lstm(x)
+            context, _ = self.attention(lstm_out)
+            context = self.batch_norm(context)
+            return self.classifier(context)
