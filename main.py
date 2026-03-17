@@ -1,7 +1,12 @@
 """Point d'entree de l'application Trading Bot V1."""
 
 import sys
+import os
 import traceback
+
+# Supprimer les warnings de font pyqtgraph (cosmetic, pas critique)
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false"
+
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QFont
 
@@ -22,7 +27,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Trading Bot V1")
 
-    # Police par defaut - utiliser une taille explicite > 0
+    # Police par defaut
     font = QFont("Segoe UI")
     font.setPointSize(10)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)

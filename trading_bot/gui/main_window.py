@@ -33,6 +33,8 @@ class DataWorker(QThread):
     def run(self):
         try:
             df = self.market_data.fetch_historical(self.symbol, self.period)
+            # Nettoyer dans le thread worker pour eviter les conflits GIL
+            df = df.ffill().fillna(0)
             self.finished.emit(df)
         except Exception as e:
             self.error.emit(str(e))

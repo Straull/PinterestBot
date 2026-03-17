@@ -96,10 +96,6 @@ class ChartWidget(QFrame):
         if df is None or df.empty:
             return
 
-        # Nettoyer les NaN résiduels
-        df = df.copy()
-        df = df.fillna(method="ffill").fillna(0)
-
         self.price_plot.clear()
         self.volume_plot.clear()
         self.rsi_plot.clear()
