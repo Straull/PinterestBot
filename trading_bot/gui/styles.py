@@ -326,4 +326,51 @@ QGroupBox::title {{
     left: 12px;
     padding: 0 4px;
 }}
+
+/* TableWidget */
+QTableWidget {{
+    background-color: {COLORS['bg_dark']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 4px;
+    gridline-color: {COLORS['border']};
+    color: {COLORS['text']};
+    selection-background-color: {COLORS['accent_blue']}40;
+    alternate-background-color: {COLORS['bg_card']};
+}}
+
+QTableWidget::item {{
+    padding: 6px 8px;
+    border: none;
+}}
+
+QTableWidget::item:selected {{
+    background-color: {COLORS['accent_blue']}30;
+    color: {COLORS['text']};
+}}
+
+QHeaderView::section {{
+    background-color: {COLORS['bg_panel']};
+    color: {COLORS['text_secondary']};
+    border: none;
+    border-bottom: 2px solid {COLORS['border']};
+    border-right: 1px solid {COLORS['border']};
+    padding: 8px 6px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+}}
+
+/* DoubleSpinBox */
+QDoubleSpinBox {{
+    background-color: {COLORS['bg_input']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: {COLORS['text']};
+    font-size: 13px;
+}}
+
+QDoubleSpinBox:focus {{
+    border: 1px solid {COLORS['accent_blue']};
+}}
 """
