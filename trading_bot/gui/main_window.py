@@ -199,16 +199,23 @@ class MainWindow(QMainWindow):
 
     def _on_data_loaded(self, df: pd.DataFrame):
         self.current_data = df
-        self.chart.update_chart(df)
+        try:
+            self.chart.update_chart(df)
+        except Exception as e:
+            print(f"Erreur graphique: {e}")
         self.controls.set_data_loaded(len(df), self.market_data.symbol)
         self.controls.load_btn.setEnabled(True)
         self.results.clear()
 
-        info = self.market_data.get_info()
-        name = info.get("name", self.market_data.symbol)
+        # get_info() peut bloquer/crasher avec certaines versions de yfinance
+        symbol = self.market_data.symbol or "?"
+        try:
+            last_price = df["Close"].iloc[-1]
+        except Exception:
+            last_price = 0
         self.statusbar.showMessage(
-            f"{name} - {len(df)} lignes chargees | "
-            f"Dernier prix: ${df['Close'].iloc[-1]:,.2f}"
+            f"{symbol} - {len(df)} lignes chargees | "
+            f"Dernier prix: ${last_price:,.2f}"
         )
 
     def _on_data_error(self, error: str):

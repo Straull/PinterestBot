@@ -1,23 +1,35 @@
-"""Point d'entrée de l'application Trading Bot V1."""
+"""Point d'entree de l'application Trading Bot V1."""
 
 import sys
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
+import traceback
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtGui import QFont
 
-from trading_bot.gui.main_window import MainWindow
+
+def excepthook(exc_type, exc_value, exc_tb):
+    """Attrape les exceptions non gerees pour eviter les crashs silencieux."""
+    msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    print(f"ERREUR NON GEREE:\n{msg}", file=sys.stderr)
+    try:
+        QMessageBox.critical(None, "Erreur", f"Une erreur est survenue:\n\n{exc_value}\n\nDetails dans la console.")
+    except Exception:
+        pass
 
 
 def main():
+    sys.excepthook = excepthook
+
     app = QApplication(sys.argv)
     app.setApplicationName("Trading Bot V1")
 
-    # Police par défaut
-    font = QFont("Segoe UI", 10)
+    # Police par defaut - utiliser une taille explicite > 0
+    font = QFont("Segoe UI")
+    font.setPointSize(10)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     app.setFont(font)
 
-    # Fenêtre principale
+    from trading_bot.gui.main_window import MainWindow
+
     window = MainWindow()
     window.show()
 

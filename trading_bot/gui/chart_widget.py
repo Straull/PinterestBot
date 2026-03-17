@@ -70,7 +70,7 @@ class ChartWidget(QFrame):
 
     def _style_plot(self, plot, title: str):
         """Applique le style à un plot."""
-        plot.setLabel("left", title, color=COLORS["text_secondary"], size="10pt")
+        plot.setLabel("left", title, color=COLORS["text_secondary"])
         plot.getAxis("left").setPen(pg.mkPen(COLORS["border"]))
         plot.getAxis("bottom").setPen(pg.mkPen(COLORS["border"]))
         plot.getAxis("left").setTextPen(pg.mkPen(COLORS["text_muted"]))
@@ -84,10 +84,21 @@ class ChartWidget(QFrame):
             self.vline.setPos(mouse_point.x())
             self.hline.setPos(mouse_point.y())
 
+    @staticmethod
+    def _clean(arr):
+        """Remplace NaN et Inf par 0 pour éviter les crashs pyqtgraph."""
+        arr = np.array(arr, dtype=float)
+        arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+        return arr
+
     def update_chart(self, df: pd.DataFrame):
         """Met à jour tous les graphiques avec les nouvelles données."""
-        if df.empty:
+        if df is None or df.empty:
             return
+
+        # Nettoyer les NaN résiduels
+        df = df.copy()
+        df = df.fillna(method="ffill").fillna(0)
 
         self.price_plot.clear()
         self.volume_plot.clear()
@@ -104,30 +115,26 @@ class ChartWidget(QFrame):
 
         x = np.arange(len(df))
 
-        # --- Prix avec chandeliers simplifiés ---
-        close = df["Close"].values
-        open_p = df["Open"].values if "Open" in df.columns else close
+        # --- Prix ---
+        close = self._clean(df["Close"].values)
+        open_p = self._clean(df["Open"].values) if "Open" in df.columns else close
 
-        # Ligne de prix principale
         self.price_plot.plot(x, close, pen=pg.mkPen(COLORS["accent_blue"], width=2))
 
         # Moyennes mobiles
         if "SMA_20" in df.columns:
-            sma20 = df["SMA_20"].values
-            self.price_plot.plot(x, sma20, pen=pg.mkPen(COLORS["accent_orange"], width=1))
+            self.price_plot.plot(x, self._clean(df["SMA_20"].values), pen=pg.mkPen(COLORS["accent_orange"], width=1))
         if "SMA_50" in df.columns:
-            sma50 = df["SMA_50"].values
-            self.price_plot.plot(x, sma50, pen=pg.mkPen(COLORS["accent_purple"], width=1))
+            self.price_plot.plot(x, self._clean(df["SMA_50"].values), pen=pg.mkPen(COLORS["accent_purple"], width=1))
 
         # Bollinger Bands
         if "BB_High" in df.columns and "BB_Low" in df.columns:
-            bb_high = df["BB_High"].values
-            bb_low = df["BB_Low"].values
+            bb_high = self._clean(df["BB_High"].values)
+            bb_low = self._clean(df["BB_Low"].values)
             bb_pen = pg.mkPen(COLORS["text_muted"], width=1, style=Qt.PenStyle.DashLine)
             self.price_plot.plot(x, bb_high, pen=bb_pen)
             self.price_plot.plot(x, bb_low, pen=bb_pen)
 
-            # Fill entre les bandes
             fill = pg.FillBetweenItem(
                 pg.PlotDataItem(x, bb_high),
                 pg.PlotDataItem(x, bb_low),
@@ -137,38 +144,34 @@ class ChartWidget(QFrame):
 
         # --- Volume ---
         if "Volume" in df.columns:
-            volume = df["Volume"].values
-            colors = [
-                QColor(COLORS["chart_up"]) if close[i] >= open_p[i]
-                else QColor(COLORS["chart_down"])
+            volume = self._clean(df["Volume"].values)
+            up_brush = pg.mkBrush(COLORS["chart_up"] + "78")
+            down_brush = pg.mkBrush(COLORS["chart_down"] + "78")
+            brushes = [
+                up_brush if close[i] >= open_p[i] else down_brush
                 for i in range(len(close))
             ]
-            brushes = [pg.mkBrush(c.red(), c.green(), c.blue(), 120) for c in colors]
             bar = pg.BarGraphItem(x=x, height=volume, width=0.6, brushes=brushes)
             self.volume_plot.addItem(bar)
 
         # --- RSI ---
         if "RSI" in df.columns:
-            rsi = df["RSI"].values
-            rsi_pen = pg.mkPen(COLORS["accent_purple"], width=1.5)
-            self.rsi_plot.plot(x, rsi, pen=rsi_pen)
+            rsi = self._clean(df["RSI"].values)
+            self.rsi_plot.plot(x, rsi, pen=pg.mkPen(COLORS["accent_purple"], width=1.5))
             self.rsi_plot.setYRange(0, 100)
 
         # --- MACD ---
         if "MACD" in df.columns:
-            macd = df["MACD"].values
-            signal = df["MACD_Signal"].values if "MACD_Signal" in df.columns else np.zeros_like(macd)
-            hist = df["MACD_Hist"].values if "MACD_Hist" in df.columns else macd - signal
+            macd = self._clean(df["MACD"].values)
+            signal = self._clean(df["MACD_Signal"].values) if "MACD_Signal" in df.columns else np.zeros_like(macd)
+            hist = self._clean(df["MACD_Hist"].values) if "MACD_Hist" in df.columns else macd - signal
 
             self.macd_plot.plot(x, macd, pen=pg.mkPen(COLORS["accent_blue"], width=1.5))
             self.macd_plot.plot(x, signal, pen=pg.mkPen(COLORS["accent_orange"], width=1.5))
 
-            # Histogramme MACD
-            hist_colors = [
-                pg.mkBrush(COLORS["chart_up"]) if h >= 0
-                else pg.mkBrush(COLORS["chart_down"])
-                for h in hist
-            ]
+            up_brush = pg.mkBrush(COLORS["chart_up"])
+            down_brush = pg.mkBrush(COLORS["chart_down"])
+            hist_colors = [up_brush if h >= 0 else down_brush for h in hist]
             bar = pg.BarGraphItem(x=x, height=hist, width=0.5, brushes=hist_colors)
             self.macd_plot.addItem(bar)
 
